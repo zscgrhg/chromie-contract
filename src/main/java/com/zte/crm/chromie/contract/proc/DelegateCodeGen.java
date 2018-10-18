@@ -81,7 +81,7 @@ public class DelegateCodeGen extends ProcessorSupport {
             return;
         }
         final String simpleName = "DelegateOf" + contract.tsym.name.toString();
-        final String genPkgName = jcClassDecl.owner.toString();
+        final String genPkgName = contract.tsym.owner.toString()+".codegen";
         final String genClassName = genPkgName + "." + simpleName;
         final long GEN_CLASS_FLAG = Flags.PUBLIC;
         JCTree.JCClassDecl generatedClass = make
