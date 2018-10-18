@@ -21,6 +21,7 @@ import javax.lang.model.element.TypeElement;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @SupportedAnnotationTypes("com.zte.crm.chromie.contract.anno.Producer")
@@ -30,6 +31,7 @@ public class DelegateCodeGen extends ProcessorSupport {
     public static final String CLASS_AUTOWIRED = Autowired.class.getCanonicalName();
     public static final String CLASS_RC = RestController.class.getCanonicalName();
 
+    public static final ConcurrentHashMap<String, Boolean> HISTORY = new ConcurrentHashMap<>();
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
@@ -73,8 +75,12 @@ public class DelegateCodeGen extends ProcessorSupport {
     }
 
     private void genDelegate(Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
-        Type contractTypeSymbo = contract;
-        final String simpleName = "DelegateOf" + contractTypeSymbo.tsym.name.toString();
+
+        Boolean exist = HISTORY.putIfAbsent(contract.tsym.toString(), Boolean.TRUE);
+        if (exist != null && exist) {
+            return;
+        }
+        final String simpleName = "DelegateOf" + contract.tsym.name.toString();
         final String genPkgName = jcClassDecl.owner.toString();
         final String genClassName = genPkgName + "." + simpleName;
         final long GEN_CLASS_FLAG = Flags.PUBLIC;
@@ -89,23 +95,21 @@ public class DelegateCodeGen extends ProcessorSupport {
         JCTree.JCAnnotation annotation =
                 make.Annotation(getJavaType(CLASS_RC),
                         List.nil());
-        if (!jcClassDecl.isInterface()) {
-            generatedClass.mods.annotations = List.of(annotation);
-        }
+        generatedClass.mods.annotations = List.of(annotation);
 
-        generatedClass.implementing = List.of(make.Type(contractTypeSymbo));
+        generatedClass.implementing = List.of(make.Type(contract));
         JCTree.JCAnnotation autowired = make.Annotation(
                 getJavaType(CLASS_AUTOWIRED),
                 List.nil());
 
         JCTree.JCVariableDecl producerVar = fieldDef(make.Modifiers(0L, List.of(autowired)),
-                "producer", make.Type(contractTypeSymbo), null);
+                "producer", make.Type(contract), null);
 
 
         generatedClass.defs = generatedClass.defs.prepend(producerVar);
 
 
-        java.util.List<Symbol> enclosedElements = contractTypeSymbo.tsym.getEnclosedElements();
+        java.util.List<Symbol> enclosedElements = contract.tsym.getEnclosedElements();
         enclosedElements.stream()
                 .filter(it -> it instanceof Symbol.MethodSymbol)
                 .map(it -> (Symbol.MethodSymbol) it)
