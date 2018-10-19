@@ -4,6 +4,7 @@ import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Type;
 import com.sun.tools.javac.tree.JCTree;
+import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
 import com.zte.crm.chromie.contract.ProcessorSupport;
@@ -20,9 +21,11 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @SupportedAnnotationTypes("com.zte.crm.chromie.contract.anno.Producer")
@@ -37,33 +40,36 @@ public class DelegateCodeGen extends ProcessorSupport {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         Set<? extends Element> annotated = roundEnv.getElementsAnnotatedWith(Producer.class);
+
         annotated.forEach(element -> {
             assert element instanceof Symbol.ClassSymbol;
             Symbol.ClassSymbol producerClazz = (Symbol.ClassSymbol) element;
             assert producerClazz.type instanceof Type.ClassType;
             Type.ClassType ctype = (Type.ClassType) producerClazz.type;
-            process(producerClazz, ctype, true);
+            Set<String> contractPkgs = new HashSet<>();
+            process(contractPkgs, producerClazz, ctype, true);
+            genConfig(contractPkgs, element);
         });
         return true;
     }
 
-    private void process(Symbol.ClassSymbol root, Type.ClassType start, boolean test) {
+    private void process(Set<String> contractPkgs, Symbol.ClassSymbol root, Type.ClassType start, boolean test) {
         if (start.isInterface() && isContract(start)) {
-            genDelegate(root, start);
+            genDelegate(contractPkgs, root, start);
         }
         Stream.of(start.all_interfaces_field, start.interfaces_field)
                 .filter(Objects::nonNull)
                 .flatMap(t -> t.stream())
                 .filter(t -> t instanceof Type.ClassType)
                 .map(t -> (Type.ClassType) t)
-                .forEach(t -> process(root, t, true));
+                .forEach(t -> process(contractPkgs, root, t, true));
 
         if (start.supertype_field != null && start.supertype_field instanceof Type.ClassType) {
-            process(root, (Type.ClassType) start.supertype_field, true);
+            process(contractPkgs, root, (Type.ClassType) start.supertype_field, true);
         } else if (test && start.tsym != null
                 && start.tsym.type != null
                 && start.tsym.type instanceof Type.ClassType) {
-            process(root, (Type.ClassType) start.tsym.type, false);
+            process(contractPkgs, root, (Type.ClassType) start.tsym.type, false);
         }
 
     }
@@ -80,12 +86,55 @@ public class DelegateCodeGen extends ProcessorSupport {
                 || classType.getAnnotation(Contract.class) != null);
     }
 
-    private void genDelegate(Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
+    private void genConfig(Set<String> contractPkgs, Element root) {
+        if (!contractPkgs.isEmpty()) {
+            JCTree jct = javacTrees.getTree(root);
+            jct.accept(new TreeTranslator() {
+                @Override
+                public void visitClassDef(JCTree.JCClassDecl jcClassDecl) {
+                    super.visitClassDef(jcClassDecl);
+                    genC(contractPkgs, jcClassDecl);
+                }
+            });
+        }
+    }
+
+    private void genC(Set<String> contractPkgs, JCTree.JCClassDecl jcClassDecl) {
+        final String simpleName = "ContractLoader";
+
+
+        final long GEN_CLASS_FLAG = Flags.PUBLIC | Flags.STATIC;
+        JCTree.JCAnnotation cfg =
+                make.Annotation(getJavaType("org.springframework.context.annotation.Configuration"),
+                        List.nil());
+        //org.springframework.context.annotation.ComponentScan
+        java.util.List<JCTree.JCLiteral> args = contractPkgs.stream()
+                .map(t -> make.Literal(t))
+                .collect(Collectors.toList());
+        JCTree.JCExpression jcNewArray = make.NewArray(null, List.nil(), List.from(args));
+        JCTree.JCAnnotation csan =
+                make.Annotation(getJavaType("org.springframework.context.annotation.ComponentScan"),
+                        List.of(jcNewArray));
+        List<JCTree.JCAnnotation> annos = List.of(cfg, csan);
+
+
+        JCTree.JCClassDecl generatedClass = make
+                .ClassDef(make.Modifiers(GEN_CLASS_FLAG, annos),
+                        javacNames.fromString(simpleName),
+                        List.nil(),
+                        null,
+                        List.nil(),
+                        List.nil());
+        jcClassDecl.defs = jcClassDecl.defs.prepend(generatedClass);
+    }
+
+    private void genDelegate(Set<String> contractPkgs, Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
 
         Boolean exist = HISTORY.putIfAbsent(contract.tsym.toString(), Boolean.TRUE);
         if (exist != null && exist) {
             return;
         }
+        contractPkgs.add(contract.tsym.owner.toString());
         final String simpleName = "DelegateOf" + contract.tsym.name.toString();
         final String genPkgName = contract.tsym.owner.toString() + ".codegen";
         final String genClassName = genPkgName + "." + simpleName;
