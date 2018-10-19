@@ -99,8 +99,9 @@ public abstract class ProcessorSupport extends AbstractProcessor {
     protected JCTree.JCReturn returnRef(String name) {
         return make.Return(make.Ident(javacNames.fromString(name)));
     }
+
     protected JCTree.JCReturn returnField(String name) {
-        return make.Return( dottedIdent(name,-1));
+        return make.Return(dottedIdent(name, -1));
     }
 
     protected JCTree.JCReturn returnInvoke(JCTree.JCMethodInvocation invocation) {
@@ -154,7 +155,7 @@ public abstract class ProcessorSupport extends AbstractProcessor {
 
     protected JCTree.JCMethodInvocation invoke(String varRef, Name name, List<JCTree.JCExpression> args) {
 
-        return invoke(make.Select(dottedIdent(varRef,-1),
+        return invoke(make.Select(dottedIdent(varRef, -1),
                 name), args);
     }
 
@@ -173,5 +174,4 @@ public abstract class ProcessorSupport extends AbstractProcessor {
         buffer.appendArray(statements);
         return make.Block(0, buffer.toList());
     }
-
 }
