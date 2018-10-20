@@ -7,7 +7,7 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
-import com.zte.crm.chromie.contract.ProcessorSupport;
+import com.zte.crm.chromie.contract.TreeMakerBuddy;
 import com.zte.crm.chromie.contract.anno.Contract;
 import com.zte.crm.chromie.contract.anno.Producer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,19 +19,13 @@ import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
-import java.io.PrintWriter;
-import java.io.Writer;
 import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @SupportedAnnotationTypes("com.zte.crm.chromie.contract.anno.Producer")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
-public class DelegateCodeGen extends ProcessorSupport {
-
+public class DelegateCodeGen extends TreeMakerBuddy {
     public static final String CLASS_AUTOWIRED = Autowired.class.getCanonicalName();
     public static final String CLASS_RC = RestController.class.getCanonicalName();
     public static final String CLASS_CONTRACT = Contract.class.getCanonicalName();
@@ -42,49 +36,46 @@ public class DelegateCodeGen extends ProcessorSupport {
         Set<? extends Element> annotated = roundEnv.getElementsAnnotatedWith(Producer.class);
 
         annotated.forEach(element -> {
-            assert element instanceof Symbol.ClassSymbol;
-            Symbol.ClassSymbol producerClazz = (Symbol.ClassSymbol) element;
-            assert producerClazz.type instanceof Type.ClassType;
-            Type.ClassType ctype = (Type.ClassType) producerClazz.type;
-            Set<String> contractPkgs = new HashSet<>();
-            process(contractPkgs, producerClazz, ctype, true);
-            genConfig(contractPkgs, element);
+            if (element instanceof Symbol.ClassSymbol) {
+                Symbol.ClassSymbol producerClazz = (Symbol.ClassSymbol) element;
+                if (producerClazz.type instanceof Type.ClassType) {
+                    Type.ClassType ctype = (Type.ClassType) producerClazz.type;
+                    Set<String> contractPkgs = new HashSet<>();
+                    process(contractPkgs, producerClazz, ctype, true);
+                    genConfig(contractPkgs, element);
+                }
+            }
+
+
         });
         return true;
     }
 
-    private void process(Set<String> contractPkgs, Symbol.ClassSymbol root, Type.ClassType start, boolean test) {
-        if (start.isInterface() && isContract(start)) {
-            genDelegate(contractPkgs, root, start);
+    private void process(Set<String> contractPkgs,
+                         Symbol.ClassSymbol root,
+                         Type.ClassType current,
+                         boolean test) {
+        if (current.isInterface() && isContract(current)) {
+            genDelegate(contractPkgs, root, current);
         }
-        Stream.of(start.all_interfaces_field, start.interfaces_field)
-                .filter(Objects::nonNull)
-                .flatMap(t -> t.stream())
-                .filter(t -> t instanceof Type.ClassType)
-                .map(t -> (Type.ClassType) t)
+        interfacesFieldOf(current)
                 .forEach(t -> process(contractPkgs, root, t, true));
 
-        if (start.supertype_field != null && start.supertype_field instanceof Type.ClassType) {
-            process(contractPkgs, root, (Type.ClassType) start.supertype_field, true);
-        } else if (test && start.tsym != null
-                && start.tsym.type != null
-                && start.tsym.type instanceof Type.ClassType) {
-            process(contractPkgs, root, (Type.ClassType) start.tsym.type, false);
+        Type superfield = supertypeFieldOf(current);
+        Type tsymType = tsymType(current);
+        if (superfield != null && superfield instanceof Type.ClassType) {
+            process(contractPkgs, root, (Type.ClassType) superfield, true);
+        } else if (test && tsymType != null
+                && tsymType instanceof Type.ClassType) {
+            process(contractPkgs, root, (Type.ClassType) tsymType, false);
         }
 
     }
 
     private boolean isContract(Type.ClassType classType) {
-        return (classType.asElement()
-                .getDeclarationAttributes()
-                .stream()
-                .filter(t -> Contract.class.getCanonicalName()
-                        .equals(t.type.tsym.toString()))
-                .findAny()
-                .isPresent()
-
-                || classType.getAnnotation(Contract.class) != null);
+        return hasAnnotation(classType, Contract.class);
     }
+
 
     private void genConfig(Set<String> contractPkgs, Element root) {
         if (!contractPkgs.isEmpty()) {
@@ -105,16 +96,10 @@ public class DelegateCodeGen extends ProcessorSupport {
 
         final long GEN_CLASS_FLAG = Flags.PUBLIC | Flags.STATIC;
         JCTree.JCAnnotation cfg =
-                make.Annotation(getJavaType("org.springframework.context.annotation.Configuration"),
-                        List.nil());
-        //org.springframework.context.annotation.ComponentScan
-        java.util.List<JCTree.JCLiteral> args = contractPkgs.stream()
-                .map(t -> make.Literal(t))
-                .collect(Collectors.toList());
-        JCTree.JCExpression jcNewArray = make.NewArray(null, List.nil(), List.from(args));
+                annotationExpr("org.springframework.context.annotation.Configuration", List.nil());
+
         JCTree.JCAnnotation csan =
-                make.Annotation(getJavaType("org.springframework.context.annotation.ComponentScan"),
-                        List.of(jcNewArray));
+                annotationExpr("org.springframework.context.annotation.ComponentScan", contractPkgs);
         List<JCTree.JCAnnotation> annos = List.of(cfg, csan);
 
 
@@ -125,6 +110,7 @@ public class DelegateCodeGen extends ProcessorSupport {
                         null,
                         List.nil(),
                         List.nil());
+
         jcClassDecl.defs = jcClassDecl.defs.prepend(generatedClass);
     }
 
@@ -137,10 +123,10 @@ public class DelegateCodeGen extends ProcessorSupport {
         contractPkgs.add(contract.tsym.owner.toString());
         final String simpleName = "DelegateOf" + contract.tsym.name.toString();
         final String genPkgName = contract.tsym.owner.toString() + ".codegen";
-        final String genClassName = genPkgName + "." + simpleName;
+
         final long GEN_CLASS_FLAG = Flags.PUBLIC;
         JCTree.JCAnnotation annotation =
-                make.Annotation(getJavaType(CLASS_RC),
+                make.Annotation(javaTypeExpr(CLASS_RC),
                         List.nil());
         ListBuffer<JCTree.JCAnnotation> annos = new ListBuffer<>();
         annos.append(annotation);
@@ -164,10 +150,10 @@ public class DelegateCodeGen extends ProcessorSupport {
 
 
         JCTree.JCAnnotation autowired = make.Annotation(
-                getJavaType(CLASS_AUTOWIRED),
+                javaTypeExpr(CLASS_AUTOWIRED),
                 List.nil());
 
-        JCTree.JCVariableDecl producerVar = fieldDef(make.Modifiers(0L, List.of(autowired)),
+        JCTree.JCVariableDecl producerVar = varDecl(make.Modifiers(0L, List.of(autowired)),
                 "producer", make.Type(contract), null);
 
 
@@ -194,7 +180,7 @@ public class DelegateCodeGen extends ProcessorSupport {
                     stub.appendAttributes(symbol.getDeclarationAttributes());
                     ListBuffer<JCTree.JCExpression> argExpr = new ListBuffer<>();
                     stub.params.forEach(arg -> argExpr.append(make.Ident(arg.name)));
-                    JCTree.JCMethodInvocation invoke = invoke("this.producer." + stub.name, argExpr);
+                    JCTree.JCMethodInvocation invoke = invocation("this.producer." + stub.name, argExpr.toList());
                     JCTree.JCMethodDecl copyed =
                             make.MethodDef(stub, block(make.Return(invoke)));
 
@@ -202,15 +188,6 @@ public class DelegateCodeGen extends ProcessorSupport {
                     generatedClass.defs = generatedClass.defs.prepend(copyed);
                 });
 
-
-        try (Writer writer = processingEnv.getFiler()
-                .createSourceFile(genClassName)
-                .openWriter();
-             PrintWriter printWriter = new PrintWriter(writer)) {
-            printWriter.print("package " + genPkgName + ";\n");
-            printWriter.print(generatedClass);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        addSource(genPkgName, generatedClass);
     }
 }
