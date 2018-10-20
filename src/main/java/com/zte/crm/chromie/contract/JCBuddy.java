@@ -20,7 +20,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public abstract class TreeMakerBuddy extends AbstractProcessor {
+public abstract class JCBuddy extends AbstractProcessor {
     protected Messager javacMessager;
     protected JavacTrees javacTrees;
     protected TreeMaker make;

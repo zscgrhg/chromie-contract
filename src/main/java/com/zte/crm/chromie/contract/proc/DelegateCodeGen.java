@@ -7,7 +7,7 @@ import com.sun.tools.javac.tree.JCTree;
 import com.sun.tools.javac.tree.TreeTranslator;
 import com.sun.tools.javac.util.List;
 import com.sun.tools.javac.util.ListBuffer;
-import com.zte.crm.chromie.contract.TreeMakerBuddy;
+import com.zte.crm.chromie.contract.JCBuddy;
 import com.zte.crm.chromie.contract.anno.Contract;
 import com.zte.crm.chromie.contract.anno.Producer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @SupportedAnnotationTypes("com.zte.crm.chromie.contract.anno.Producer")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
-public class DelegateCodeGen extends TreeMakerBuddy {
+public class DelegateCodeGen extends JCBuddy {
     public static final String CLASS_AUTOWIRED = Autowired.class.getCanonicalName();
     public static final String CLASS_RC = RestController.class.getCanonicalName();
     public static final String CLASS_CONTRACT = Contract.class.getCanonicalName();
