@@ -42,7 +42,7 @@ public class DelegateCodeGen extends JCBuddy {
                     Type.ClassType ctype = (Type.ClassType) producerClazz.type;
                     Set<String> contractPkgs = new HashSet<>();
                     process(contractPkgs, producerClazz, ctype, true);
-                    genConfig(contractPkgs, element);
+                    attachDelegateScan(contractPkgs, element);
                 }
             }
 
@@ -77,21 +77,21 @@ public class DelegateCodeGen extends JCBuddy {
     }
 
 
-    private void genConfig(Set<String> contractPkgs, Element root) {
+    private void attachDelegateScan(Set<String> contractPkgs, Element root) {
         if (!contractPkgs.isEmpty()) {
             JCTree jct = javacTrees.getTree(root);
             jct.accept(new TreeTranslator() {
                 @Override
                 public void visitClassDef(JCTree.JCClassDecl jcClassDecl) {
                     super.visitClassDef(jcClassDecl);
-                    genC(contractPkgs, jcClassDecl);
+                    attach(contractPkgs, jcClassDecl);
                 }
             });
         }
     }
 
-    private void genC(Set<String> contractPkgs, JCTree.JCClassDecl jcClassDecl) {
-        final String simpleName = "ContractLoader";
+    private void attach(Set<String> contractPkgs, JCTree.JCClassDecl jcClassDecl) {
+        final String simpleName = "DelegateLoader";
 
 
         final long GEN_CLASS_FLAG = Flags.PUBLIC | Flags.STATIC;
@@ -103,7 +103,7 @@ public class DelegateCodeGen extends JCBuddy {
         List<JCTree.JCAnnotation> annos = List.of(cfg, csan);
 
 
-        JCTree.JCClassDecl generatedClass = make
+        JCTree.JCClassDecl attached = make
                 .ClassDef(make.Modifiers(GEN_CLASS_FLAG, annos),
                         javacNames.fromString(simpleName),
                         List.nil(),
@@ -111,7 +111,7 @@ public class DelegateCodeGen extends JCBuddy {
                         List.nil(),
                         List.nil());
 
-        jcClassDecl.defs = jcClassDecl.defs.prepend(generatedClass);
+        jcClassDecl.defs = jcClassDecl.defs.prepend(attached);
     }
 
     private void genDelegate(Set<String> contractPkgs, Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
@@ -130,7 +130,8 @@ public class DelegateCodeGen extends JCBuddy {
                         List.nil());
         ListBuffer<JCTree.JCAnnotation> annos = new ListBuffer<>();
         annos.append(annotation);
-        contract.asElement()
+        contract
+                .asElement()
                 .getDeclarationAttributes()
                 .forEach(da -> {
                     if (!CLASS_RC.equals(da.type.toString())
@@ -161,7 +162,8 @@ public class DelegateCodeGen extends JCBuddy {
 
 
         java.util.List<Symbol> enclosedElements = contract.tsym.getEnclosedElements();
-        enclosedElements.stream()
+        enclosedElements
+                .stream()
                 .filter(it -> it instanceof Symbol.MethodSymbol)
                 .map(it -> (Symbol.MethodSymbol) it)
                 .forEach(symbol -> {
