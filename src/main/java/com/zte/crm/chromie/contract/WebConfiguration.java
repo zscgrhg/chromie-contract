@@ -1,5 +1,6 @@
 package com.zte.crm.chromie.contract;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.web.WebMvcRegistrations;
 import org.springframework.boot.autoconfigure.web.WebMvcRegistrationsAdapter;
 import org.springframework.context.annotation.Bean;
@@ -9,6 +10,9 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 @Configuration
+@ConditionalOnProperty(name = "handler.mapping.controller.only",
+        havingValue = "true",
+        matchIfMissing = true)
 public class WebConfiguration {
 
     @Bean
