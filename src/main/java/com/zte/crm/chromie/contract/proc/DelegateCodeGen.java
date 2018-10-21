@@ -122,10 +122,10 @@ public class DelegateCodeGen extends JCBuddy {
         if (exist != null && exist) {
             return;
         }
-        contractPkgs.add(contract.tsym.owner.toString());
+
         final String simpleName = "DelegateOf" + contract.tsym.name.toString();
         final String genPkgName = contract.tsym.owner.toString() + ".codegen";
-
+        contractPkgs.add(genPkgName);
         final long GEN_CLASS_FLAG = Flags.PUBLIC;
         JCTree.JCAnnotation annotation =
                 make.Annotation(javaTypeExpr(CLASS_RC),
