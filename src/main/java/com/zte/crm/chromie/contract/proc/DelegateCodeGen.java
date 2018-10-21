@@ -11,6 +11,8 @@ import com.zte.crm.chromie.contract.JCBuddy;
 import com.zte.crm.chromie.contract.anno.Contract;
 import com.zte.crm.chromie.contract.anno.Producer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.processing.RoundEnvironment;
@@ -28,6 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DelegateCodeGen extends JCBuddy {
     public static final String CLASS_AUTOWIRED = Autowired.class.getCanonicalName();
     public static final String CLASS_RC = RestController.class.getCanonicalName();
+    public static final String CLASS_CFG = Configuration.class.getCanonicalName();
+    public static final String CLASS_CSCAN = ComponentScan.class.getCanonicalName();
     public static final String CLASS_CONTRACT = Contract.class.getCanonicalName();
     public static final ConcurrentHashMap<String, Boolean> HISTORY = new ConcurrentHashMap<>();
 
@@ -45,8 +49,6 @@ public class DelegateCodeGen extends JCBuddy {
                     attachDelegateScan(contractPkgs, element);
                 }
             }
-
-
         });
         return true;
     }
@@ -56,7 +58,7 @@ public class DelegateCodeGen extends JCBuddy {
                          Type.ClassType current,
                          boolean test) {
         if (current.isInterface() && isContract(current)) {
-            genDelegate(contractPkgs, root, current);
+            genDelegateSource(contractPkgs, root, current);
         }
         interfacesFieldOf(current)
                 .forEach(t -> process(contractPkgs, root, t, true));
@@ -96,10 +98,10 @@ public class DelegateCodeGen extends JCBuddy {
 
         final long GEN_CLASS_FLAG = Flags.PUBLIC | Flags.STATIC;
         JCTree.JCAnnotation cfg =
-                annotationExpr("org.springframework.context.annotation.Configuration", List.nil());
+                annotationExpr(CLASS_CFG, List.nil());
 
         JCTree.JCAnnotation csan =
-                annotationExpr("org.springframework.context.annotation.ComponentScan", contractPkgs);
+                annotationExpr(CLASS_CSCAN, contractPkgs);
         List<JCTree.JCAnnotation> annos = List.of(cfg, csan);
 
 
@@ -114,7 +116,7 @@ public class DelegateCodeGen extends JCBuddy {
         jcClassDecl.defs = jcClassDecl.defs.prepend(attached);
     }
 
-    private void genDelegate(Set<String> contractPkgs, Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
+    private void genDelegateSource(Set<String> contractPkgs, Symbol.ClassSymbol jcClassDecl, Type.ClassType contract) {
 
         Boolean exist = HISTORY.putIfAbsent(contract.tsym.toString(), Boolean.TRUE);
         if (exist != null && exist) {
